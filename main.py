@@ -23,18 +23,22 @@ load_dotenv()
 
 working_dir = os.path.dirname(os.path.abspath(__file__))
 
-# Ensure GPU availability
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-torch.backends.cudnn.benchmark = True  # Optimize GPU performance
-
+# Load GROQ API Key from config.json
 def load_groq_api_key():
     """Loads the GROQ API key from config.json"""
-    with open(os.path.join(working_dir, "config.json"), "r") as f:
-        return json.load(f).get("GROQ_API_KEY")
+    config_path = os.path.join(working_dir, "config.json")
+    if os.path.exists(config_path):
+        with open(config_path, "r") as f:
+            return json.load(f).get("GROQ_API_KEY")
+    return None
 
 groq_api_key = load_groq_api_key()
 if not groq_api_key:
     raise ValueError("GROQ_API_KEY not found in config.json.")
+
+# Ensure GPU availability
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+torch.backends.cudnn.benchmark = True  # Optimize GPU performance
 
 # Initialize EasyOCR with GPU support
 reader = easyocr.Reader(["en"], gpu=True)
@@ -66,9 +70,7 @@ def setup_vectorstore(documents):
 
 def create_chain(vectorstore):
     """Creates the chat chain with optimized retriever settings."""
-    if "memory" not in st.session_state:
-        st.session_state.memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-
+    st.session_state.memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
     llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0, groq_api_key=groq_api_key)
     retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
 
@@ -97,11 +99,12 @@ if uploaded_file:
         extracted_text = extract_text_from_pdf(file_path)
         st.success("✅ Text extracted successfully!")
 
-        if "vectorstore" not in st.session_state:
-            st.session_state.vectorstore = setup_vectorstore(extracted_text)
+        # Reset chat memory when a new document is uploaded
+        st.session_state.chat_history = []
+        st.session_state.memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
 
-        if "conversation_chain" not in st.session_state:
-            st.session_state.conversation_chain = create_chain(st.session_state.vectorstore)
+        st.session_state.vectorstore = setup_vectorstore(extracted_text)
+        st.session_state.conversation_chain = create_chain(st.session_state.vectorstore)
     except Exception as e:
         st.error(f"⚠️ Error: {e}")
 
@@ -116,9 +119,12 @@ if user_input:
     with st.chat_message("user"):
         st.markdown(user_input)
 
-    response = st.session_state.conversation_chain.invoke({  # Fixed `.invoke()`
+    # Clear memory to prevent previous responses from persisting incorrectly
+    st.session_state.memory.chat_memory.clear()
+
+    response = st.session_state.conversation_chain.invoke({
         "question": user_input,
-        "chat_history": st.session_state.memory.chat_memory.messages  # Ensured history is passed
+        "chat_history": []  # Reset chat history to avoid repeated answers
     })
 
     assistant_response = response.get("answer", "I'm sorry, I couldn't process that.")
@@ -126,4 +132,5 @@ if user_input:
     with st.chat_message("assistant"):
         st.markdown(assistant_response)
 
+    # Save only the latest question-answer pair
     st.session_state.memory.save_context({"input": user_input}, {"output": assistant_response})
