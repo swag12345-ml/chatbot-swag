@@ -1,4 +1,4 @@
- import streamlit as st  # Streamlit must be imported first
+import streamlit as st  # Streamlit must be imported first
 
 # Set page config as the very first Streamlit command
 st.set_page_config(page_title="Chat with Swag AI", page_icon="📝", layout="centered")
