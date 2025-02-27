@@ -6,7 +6,9 @@ st.set_page_config(page_title="Chat with Swag AI", page_icon="📝", layout="cen
 import os
 import json
 import torch
-from dotenv import load_dotenv
+import speech_recognition as sr
+from gtts import gTTS
+import tempfile
 import fitz  # PyMuPDF for text extraction
 import easyocr  # GPU-accelerated OCR
 from pdf2image import convert_from_path  # Convert PDFs to images
@@ -17,6 +19,7 @@ from langchain_groq import ChatGroq
 from langchain.memory import ConversationBufferMemory
 from langchain.chains import ConversationalRetrievalChain
 import numpy as np
+from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
@@ -82,58 +85,78 @@ def create_chain(vectorstore):
         verbose=False
     )
 
+def recognize_speech():
+    """Captures user speech and converts it to text."""
+    recognizer = sr.Recognizer()
+    with sr.Microphone() as source:
+        st.info("🎤 Listening...")
+        audio = recognizer.listen(source)
+    try:
+        return recognizer.recognize_google(audio)
+    except sr.UnknownValueError:
+        return ""
+    except sr.RequestError:
+        return "Speech recognition service unavailable."
+
+def text_to_speech(text):
+    """Converts chatbot response to speech."""
+    tts = gTTS(text)
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as temp_audio:
+        tts.save(temp_audio.name)
+        st.session_state.audio_file = temp_audio.name  # Store audio file path
+
+def stop_audio():
+    """Stops the currently playing audio."""
+    st.session_state.audio_file = None
+
 # Streamlit UI
 st.title("🦙 Chat with Swag AI - LLAMA 3.3 (GPU Accelerated)")
 
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
-# Allow multiple PDF uploads
 uploaded_files = st.file_uploader("Upload your PDF files", type=["pdf"], accept_multiple_files=True)
 
 if uploaded_files:
     all_extracted_text = []
-    
     for uploaded_file in uploaded_files:
         file_path = os.path.join(working_dir, uploaded_file.name)
-        
         with open(file_path, "wb") as f:
             f.write(uploaded_file.getbuffer())
-
         try:
             extracted_text = extract_text_from_pdf(file_path)
-            all_extracted_text.extend(extracted_text)  # Collect text from all PDFs
+            all_extracted_text.extend(extracted_text)
             st.success(f"✅ Extracted text from {uploaded_file.name}")
         except Exception as e:
             st.error(f"⚠️ Error processing {uploaded_file.name}: {e}")
-
-    # Process all extracted text together
     if all_extracted_text:
         if "vectorstore" not in st.session_state:
             st.session_state.vectorstore = setup_vectorstore(all_extracted_text)
-        
         if "conversation_chain" not in st.session_state:
             st.session_state.conversation_chain = create_chain(st.session_state.vectorstore)
-
 if "conversation_chain" in st.session_state:
     for message in st.session_state.memory.load_memory_variables({}).get("chat_history", []):
         with st.chat_message("user" if message.type == "human" else "assistant"):
             st.markdown(message.content)
-
 user_input = st.chat_input("Ask Llama...")
+
+if st.button("🎤 Speak"):
+    user_input = recognize_speech()
+    st.text(f"You said: {user_input}")
 
 if user_input:
     with st.chat_message("user"):
         st.markdown(user_input)
-
     response = st.session_state.conversation_chain.invoke({
         "question": user_input,
         "chat_history": st.session_state.memory.chat_memory.messages
     })
-
     assistant_response = response.get("answer", "I'm sorry, I couldn't process that.")
-
     with st.chat_message("assistant"):
         st.markdown(assistant_response)
-    
+    text_to_speech(assistant_response)
+    if st.session_state.audio_file:
+        st.audio(st.session_state.audio_file, format="audio/mp3")
+    if st.button("⏹ Stop Audio"):
+        stop_audio()
     st.session_state.memory.save_context({"input": user_input}, {"output": assistant_response})
