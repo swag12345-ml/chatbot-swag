@@ -20,3 +20,4 @@ pyaudio
 opencv-python
 tqdm
 llama-cpp-python
+mysql-connector-python  # MySQL support
