@@ -1,7 +1,10 @@
 streamlit
+streamlit-option-menu
 torch
+torchvision
+transformers
 python-dotenv
-pymupdf  # PyMuPDF
+pymupdf
 easyocr
 pdf2image
 langchain
@@ -11,4 +14,9 @@ langchain-groq
 faiss-cpu
 numpy
 pillow
-sentence-transformers  # Required for HuggingFaceEmbeddings
+speechrecognition
+gtts
+pyaudio
+opencv-python
+tqdm
+llama-cpp-python
