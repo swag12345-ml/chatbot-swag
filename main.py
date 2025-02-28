@@ -40,20 +40,29 @@ if not groq_api_key:
     st.error("🚨 GROQ_API_KEY is missing. Check your config.json file.")
     st.stop()
 
-# Initialize EasyOCR with GPU support
-reader = easyocr.Reader(["en"], gpu=True)
+# Ensure EasyOCR model files exist
+eos.makedirs("./models", exist_ok=True)
+reader = easyocr.Reader(["en"], gpu=True, model_storage_directory="./models")
 
 def extract_text_from_pdf(file_path):
     """Extracts text from PDFs using PyMuPDF, falls back to GPU-based OCR if needed."""
-    doc = fitz.open(file_path)
-    text_list = [page.get_text("text") for page in doc if page.get_text("text").strip()]
-    doc.close()
-    return text_list if text_list else extract_text_from_images(file_path)
+    try:
+        doc = fitz.open(file_path)
+        text_list = [page.get_text("text") for page in doc if page.get_text("text").strip()]
+        doc.close()
+        return text_list if text_list else extract_text_from_images(file_path)
+    except Exception as e:
+        st.error(f"⚠️ Error extracting text from PDF: {e}")
+        return []
 
 def extract_text_from_images(pdf_path):
     """Extracts text from image-based PDFs using GPU-accelerated EasyOCR."""
-    images = convert_from_path(pdf_path, dpi=150, first_page=1, last_page=5)
-    return ["\n".join(reader.readtext(np.array(img), detail=0)) for img in images]
+    try:
+        images = convert_from_path(pdf_path, dpi=150, first_page=1, last_page=5)
+        return ["\n".join(reader.readtext(np.array(img), detail=0)) for img in images]
+    except Exception as e:
+        st.error(f"⚠️ OCR extraction failed: {e}")
+        return []
 
 def setup_vectorstore(documents):
     """Creates a FAISS vector store using Hugging Face embeddings."""
