@@ -1,8 +1,4 @@
 import streamlit as st  # Streamlit must be imported first
-
-# Set page config as the very first Streamlit command
-st.set_page_config(page_title="Chat with Swag AI", page_icon="📝", layout="centered")
-
 import os
 import json
 import torch
@@ -19,6 +15,9 @@ from langchain.memory import ConversationBufferMemory
 from langchain.chains import ConversationalRetrievalChain
 import numpy as np
 
+# Set Streamlit Page Config
+st.set_page_config(page_title="Chat with Swag AI", page_icon="📝", layout="centered")
+
 # Load environment variables
 load_dotenv()
 working_dir = os.path.dirname(os.path.abspath(__file__))
@@ -27,9 +26,10 @@ working_dir = os.path.dirname(os.path.abspath(__file__))
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 torch.backends.cudnn.benchmark = True  # Optimize GPU performance
 
-# Define end-of-sequence token if needed
-EOS_TOKEN = "</s>"  # Example of an End-of-Sequence token
+# Define End-of-Sequence token
+EOS_TOKEN = "</s>"
 
+# Load GROQ API Key
 def load_groq_api_key():
     """Loads the GROQ API key from config.json"""
     try:
@@ -45,24 +45,32 @@ if not groq_api_key:
     st.stop()
 
 # Initialize EasyOCR with GPU support
-reader = easyocr.Reader(["en"], gpu=True)
+reader = easyocr.Reader(["en"], gpu=torch.cuda.is_available())
 
 def extract_text_from_pdf(file_path):
-    """Extracts text from PDFs using PyMuPDF, falls back to GPU-based OCR if needed."""
-    doc = fitz.open(file_path)
-    text_list = [page.get_text("text") for page in doc if page.get_text("text").strip()]
-    doc.close()
-    return text_list if text_list else extract_text_from_images(file_path)
+    """Extracts text from PDFs using PyMuPDF, falls back to OCR if needed."""
+    try:
+        doc = fitz.open(file_path)
+        text_list = [page.get_text("text") for page in doc if page.get_text("text").strip()]
+        doc.close()
+        return text_list if text_list else extract_text_from_images(file_path)
+    except Exception as e:
+        st.error(f"⚠️ Error extracting text from PDF: {e}")
+        return []
 
 def extract_text_from_images(pdf_path):
     """Extracts text from image-based PDFs using GPU-accelerated EasyOCR."""
-    images = convert_from_path(pdf_path, dpi=150, first_page=1, last_page=5)
-    return ["\n".join(reader.readtext(np.array(img), detail=0)) for img in images]
+    try:
+        images = convert_from_path(pdf_path, dpi=150, first_page=1, last_page=5)
+        return ["\n".join(reader.readtext(np.array(img), detail=0)) for img in images]
+    except Exception as e:
+        st.error(f"⚠️ Error extracting text from images: {e}")
+        return []
 
 def setup_vectorstore(documents):
     """Creates a FAISS vector store using Hugging Face embeddings."""
     embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-    
+
     if DEVICE == "cuda":
         embeddings.model = embeddings.model.to(torch.device("cuda"))
     
@@ -140,7 +148,7 @@ if user_input:
 
     # Ensure asyncio does not cause event loop errors
     try:
-        assistant_response = asyncio.run(get_response(user_input))
+        assistant_response = asyncio.run_coroutine_threadsafe(get_response(user_input), asyncio.new_event_loop()).result()
     except RuntimeError:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
