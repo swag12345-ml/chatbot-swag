@@ -6,6 +6,7 @@ st.set_page_config(page_title="Chat with Swag AI", page_icon="📝", layout="cen
 import os
 import json
 import torch
+import asyncio
 from dotenv import load_dotenv
 import fitz  # PyMuPDF for text extraction
 import easyocr  # GPU-accelerated OCR
@@ -26,6 +27,9 @@ working_dir = os.path.dirname(os.path.abspath(__file__))
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 torch.backends.cudnn.benchmark = True  # Optimize GPU performance
 
+# Define end-of-sequence token if needed
+EOS_TOKEN = "</s>"  # Example of an End-of-Sequence token
+
 def load_groq_api_key():
     """Loads the GROQ API key from config.json"""
     try:
@@ -40,29 +44,20 @@ if not groq_api_key:
     st.error("🚨 GROQ_API_KEY is missing. Check your config.json file.")
     st.stop()
 
-# Ensure EasyOCR model files exist
-eos.makedirs("./models", exist_ok=True)
-reader = easyocr.Reader(["en"], gpu=True, model_storage_directory="./models")
+# Initialize EasyOCR with GPU support
+reader = easyocr.Reader(["en"], gpu=True)
 
 def extract_text_from_pdf(file_path):
     """Extracts text from PDFs using PyMuPDF, falls back to GPU-based OCR if needed."""
-    try:
-        doc = fitz.open(file_path)
-        text_list = [page.get_text("text") for page in doc if page.get_text("text").strip()]
-        doc.close()
-        return text_list if text_list else extract_text_from_images(file_path)
-    except Exception as e:
-        st.error(f"⚠️ Error extracting text from PDF: {e}")
-        return []
+    doc = fitz.open(file_path)
+    text_list = [page.get_text("text") for page in doc if page.get_text("text").strip()]
+    doc.close()
+    return text_list if text_list else extract_text_from_images(file_path)
 
 def extract_text_from_images(pdf_path):
     """Extracts text from image-based PDFs using GPU-accelerated EasyOCR."""
-    try:
-        images = convert_from_path(pdf_path, dpi=150, first_page=1, last_page=5)
-        return ["\n".join(reader.readtext(np.array(img), detail=0)) for img in images]
-    except Exception as e:
-        st.error(f"⚠️ OCR extraction failed: {e}")
-        return []
+    images = convert_from_path(pdf_path, dpi=150, first_page=1, last_page=5)
+    return ["\n".join(reader.readtext(np.array(img), detail=0)) for img in images]
 
 def setup_vectorstore(documents):
     """Creates a FAISS vector store using Hugging Face embeddings."""
@@ -131,16 +126,25 @@ if "conversation_chain" in st.session_state:
 
 user_input = st.chat_input("Ask Llama...")
 
+async def get_response(user_input):
+    """Runs the chatbot response inside an async event loop."""
+    response = await asyncio.to_thread(
+        st.session_state.conversation_chain.invoke,
+        {"question": user_input, "chat_history": st.session_state.memory.chat_memory.messages}
+    )
+    return response.get("answer", "I'm sorry, I couldn't process that.")
+
 if user_input:
     with st.chat_message("user"):
         st.markdown(user_input)
 
-    response = st.session_state.conversation_chain.invoke({
-        "question": user_input,
-        "chat_history": st.session_state.memory.chat_memory.messages
-    })
-
-    assistant_response = response.get("answer", "I'm sorry, I couldn't process that.")
+    # Ensure asyncio does not cause event loop errors
+    try:
+        assistant_response = asyncio.run(get_response(user_input))
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        assistant_response = loop.run_until_complete(get_response(user_input))
 
     with st.chat_message("assistant"):
         st.markdown(assistant_response)
