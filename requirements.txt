@@ -12,3 +12,4 @@ faiss-cpu
 numpy
 pillow
 sentence-transformers  # Required for HuggingFaceEmbeddings
+poppler-utils
