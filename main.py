@@ -26,9 +26,6 @@ working_dir = os.path.dirname(os.path.abspath(__file__))
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 torch.backends.cudnn.benchmark = True  # Optimize GPU performance
 
-# Define End-of-Sequence token
-EOS_TOKEN = "</s>"
-
 # Load GROQ API Key
 def load_groq_api_key():
     """Loads the GROQ API key from config.json"""
@@ -70,7 +67,7 @@ def extract_text_from_images(pdf_path):
 def setup_vectorstore(documents):
     """Creates a FAISS vector store using Hugging Face embeddings."""
     embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-
+    
     if DEVICE == "cuda":
         embeddings.model = embeddings.model.to(torch.device("cuda"))
     
@@ -121,11 +118,8 @@ if uploaded_files:
 
     # Process all extracted text together
     if all_extracted_text:
-        if "vectorstore" not in st.session_state:
-            st.session_state.vectorstore = setup_vectorstore(all_extracted_text)
-        
-        if "conversation_chain" not in st.session_state:
-            st.session_state.conversation_chain = create_chain(st.session_state.vectorstore)
+        st.session_state.vectorstore = setup_vectorstore(all_extracted_text)
+        st.session_state.conversation_chain = create_chain(st.session_state.vectorstore)
 
 if "conversation_chain" in st.session_state:
     for message in st.session_state.memory.load_memory_variables({}).get("chat_history", []):
@@ -146,13 +140,12 @@ if user_input:
     with st.chat_message("user"):
         st.markdown(user_input)
 
-    # Ensure asyncio does not cause event loop errors
     try:
-        assistant_response = asyncio.run_coroutine_threadsafe(get_response(user_input), asyncio.new_event_loop()).result()
-    except RuntimeError:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         assistant_response = loop.run_until_complete(get_response(user_input))
+    except Exception as e:
+        assistant_response = f"⚠️ Error: {str(e)}"
 
     with st.chat_message("assistant"):
         st.markdown(assistant_response)
