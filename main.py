@@ -7,12 +7,10 @@ from dotenv import load_dotenv
 import fitz  # PyMuPDF for text extraction
 import easyocr  # GPU-accelerated OCR
 from pdf2image import convert_from_path  # Convert PDFs to images
-from langchain_text_splitters import CharacterTextSplitter
-from langchain_community.vectorstores import FAISS
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_groq import ChatGroq
-from langchain.memory import ConversationBufferMemory
-from langchain.chains import ConversationalRetrievalChain
+from langchain_text_splitters import CharacterTextSplitter 
+from langchain_community.vectorstores import FAISS 
+from langchain_community.embeddings import HuggingFaceEmbeddings 
+from langchain_groq import ChatGroq  # optional if you're using it
 import numpy as np
 
 # Set Streamlit Page Config
@@ -151,3 +149,4 @@ if user_input:
         st.markdown(assistant_response)
     
     st.session_state.memory.save_context({"input": user_input}, {"output": assistant_response})
+
